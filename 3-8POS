@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>クロッフル受付整理券システム</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 15px; background: #f5f5f7; color: #333; }
+    .nav { display: flex; gap: 10px; margin-bottom: 20px; }
+    .nav button { flex: 1; padding: 12px 5px; font-size: 15px; font-weight: bold; border: none; background: #e0e0e0; border-radius: 8px; cursor: pointer; }
+    .nav button.active-tab { background: #007aff; color: white; }
+    .page { display: none; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .active { display: block; }
+    .item-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eee; }
+    .item-name { font-size: 16px; font-weight: bold; }
+    .btn-qty { width: 36px; height: 36px; font-size: 20px; border: 1px solid #ccc; background: #fff; border-radius: 50%; cursor: pointer; }
+    .total-box { background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; }
+    .btn-submit { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background: #34c759; color: white; border: none; border-radius: 10px; cursor: pointer; }
+    .card { border: 1px solid #e5e5ea; padding: 15px; margin-bottom: 12px; border-radius: 10px; background: #fff; border-left: 6px solid #ccc; }
+    .status-waiting { border-left-color: #ff9500; }
+    .status-cooking { border-left-color: #007aff; }
+    .status-cooked { border-left-color: #34c759; }
+    .btn-action { padding: 10px 18px; font-size: 15px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; margin-top: 10px; }
+    .btn-start { background: #007aff; }
+    .btn-finish { background: #34c759; }
+  </style>
+</head>
+<body>
+
+  <div class="nav">
+    <button id="tab-order" class="active-tab" onclick="showPage('order')">注文(レジ)</button>
+    <button id="tab-kitchen" onclick="showPage('kitchen')">調理画面</button>
+    <button id="tab-pickup" onclick="showPage('pickup')">受け渡し</button>
+  </div>
+
+  <!-- 1. 注文画面 -->
+  <div id="page-order" class="page active">
+    <h2>注文入力</h2>
+    <div id="menu-list"></div>
+    <div class="total-box">
+      <p style="margin: 5px 0;">合計点数: <strong><span id="total-count">0</span> 点</strong></p>
+      <p style="margin: 5px 0; font-size: 20px;">合計金額: <strong><span id="total-amount">0</span> 円</strong></p>
+      <small style="color: #666;">※2個ごとに100円引き適用済み</small>
+    </div>
+    <button class="btn-submit" onclick="submitOrder()">注文確定・整理券発行</button>
+  </div>
+
+  <!-- 2. 調理画面 -->
+  <div id="page-kitchen" class="page">
+    <h2>調理画面</h2>
+    <div id="kitchen-orders"></div>
+  </div>
+
+  <!-- 3. 受け渡し画面 -->
+  <div id="page-pickup" class="page">
+    <h2>受け渡し画面</h2>
+    <div id="pickup-orders"></div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // 取得したご自身の Firebase 設定情報に書き換えてください
+    const firebaseConfig = {
+      apiKey: "AIzaSyC0faMBCPDIRZ_GtRT4579855eIwhfQal8",",
+      authDomain: "pos-system-3a15a.firebaseapp.com",
+      projectId: "pos-system-3a15a
+      storageBucket: "pos-system-3a15a.firebasestorage.app",
+      messagingSenderId: "1085429055235",
+      appId: "1:1085429055235:web:24253f987bc904ca213336"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const flavors = ["プレーン", "チョコ", "いちご", "抹茶", "キャラメル"];
+    let orderState = { "プレーン": 0, "チョコ": 0, "いちご": 0, "抹茶": 0, "キャラメル": 0 };
+
+    window.showPage = function(pageId) {
+      document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active-tab'));
+      document.getElementById(`page-${pageId}`).classList.add('active');
+      document.getElementById(`tab-${pageId}`).classList.add('active-tab');
+    };
+
+    function renderMenu() {
+      const container = document.getElementById('menu-list');
+      container.innerHTML = '';
+      flavors.forEach(flavor => {
+        const div = document.createElement('div');
+        div.className = 'item-row';
+        div.innerHTML = `
+          <span class="item-name">${flavor} (300円)</span>
+          <div>
+            <button class="btn-qty" onclick="updateCount('${flavor}', -1)">-</button>
+            <span style="margin: 0 12px; font-weight: bold; font-size: 18px;">${orderState[flavor]}</span>
+            <button class="btn-qty" onclick="updateCount('${flavor}', 1)">+</button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+      calculateTotal();
+    }
+
+    window.updateCount = function(flavor, delta) {
+      if (orderState[flavor] + delta >= 0) {
+        orderState[flavor] += delta;
+        renderMenu();
+      }
+    };
+
+    function calculateTotal() {
+      const totalCount = Object.values(orderState).reduce((a, b) => a + b, 0);
+      const subtotal = totalCount * 300;
+      const discount = Math.floor(totalCount / 2) * 100;
+      const totalAmount = subtotal - discount;
+
+      document.getElementById('total-count').innerText = totalCount;
+      document.getElementById('total-amount').innerText = totalAmount;
+      return { totalCount, totalAmount };
+    }
+
+    window.submitOrder = async function() {
+      const { totalCount, totalAmount } = calculateTotal();
+      if (totalCount === 0) return alert("商品を選択してください");
+
+      // 整理券番号（簡易発番: 100〜999のランダム）
+      const ticketNumber = Math.floor(100 + Math.random() * 900);
+
+      await addDoc(collection(db, "orders"), {
+        ticketNumber: ticketNumber,
+        items: { ...orderState },
+        totalAmount: totalAmount,
+        status: "waiting", // waiting -> cooking -> cooked -> completed
+        createdAt: serverTimestamp()
+      });
+
+      alert(`注文完了！ 整理券番号: #${ticketNumber}`);
+      
+      flavors.forEach(f => orderState[f] = 0);
+      renderMenu();
+    };
+
+    // リアルタイムデータ同期
+    const q = query(collection(db, "orders"), orderBy("createdAt", "asc"));
+    onSnapshot(q, (snapshot) => {
+      const orders = [];
+      snapshot.forEach(doc => orders.push({ id: doc.id, ...doc.data() }));
+
+      renderKitchen(orders);
+      renderPickup(orders);
+    });
+
+    function renderKitchen(orders) {
+      const container = document.getElementById('kitchen-orders');
+      container.innerHTML = '';
+      
+      orders.filter(o => o.status === 'waiting' || o.status === 'cooking').forEach(order => {
+        const div = document.createElement('div');
+        div.className = `card status-${order.status}`;
+        
+        let itemsText = Object.entries(order.items)
+          .filter(([_, count]) => count > 0)
+          .map(([name, count]) => `${name} × ${count}`)
+          .join('<br>');
+
+        const statusName = order.status === 'waiting' ? '【調理準備】' : '【調理中】';
+
+        div.innerHTML = `
+          <h3 style="margin: 0 0 10px 0;">整理券 #${order.ticketNumber} ${statusName}</h3>
+          <p style="margin: 0; line-height: 1.5;">${itemsText}</p>
+          ${order.status === 'waiting' 
+            ? `<button class="btn-action btn-start" onclick="updateStatus('${order.id}', 'cooking')">調理開始</button>` 
+            : `<button class="btn-action btn-finish" onclick="updateStatus('${order.id}', 'cooked')">調理完了（受け渡しへ）</button>`}
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function renderPickup(orders) {
+      const container = document.getElementById('pickup-orders');
+      container.innerHTML = '';
+      
+      orders.filter(o => o.status === 'cooked').forEach(order => {
+        const div = document.createElement('div');
+        div.className = 'card status-cooked';
+        
+        let itemsText = Object.entries(order.items)
+          .filter(([_, count]) => count > 0)
+          .map(([name, count]) => `${name} × ${count}`)
+          .join('<br>');
+
+        div.innerHTML = `
+          <h3 style="margin: 0 0 10px 0;">整理券 #${order.ticketNumber} 【お渡しOK】</h3>
+          <p style="margin: 0 0 10px 0; line-height: 1.5;">${itemsText}</p>
+          <button class="btn-action btn-finish" onclick="updateStatus('${order.id}', 'completed')">受け渡し完了</button>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    window.updateStatus = async function(docId, newStatus) {
+      const docRef = doc(db, "orders", docId);
+      await updateDoc(docRef, { status: newStatus });
+    };
+
+    renderMenu();
+  </script>
+</body>
+</html>
