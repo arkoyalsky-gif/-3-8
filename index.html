@@ -24,8 +24,8 @@
     .btn-action { padding: 10px 18px; font-size: 15px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; margin-top: 10px; }
     .btn-start { background: #007aff; }
     .btn-finish { background: #34c759; }
+    .btn-reset { width: 100%; padding: 12px; font-size: 15px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px; }
     
-    /* 売上集計テーブル用スタイル */
     table { width: 100%; border-collapse: collapse; margin-top: 15px; }
     th, td { border: 1px solid #e5e5ea; padding: 12px; text-align: left; }
     th { background: #f8f9fa; font-weight: bold; }
@@ -82,12 +82,15 @@
       </thead>
       <tbody id="stats-table-body"></tbody>
     </table>
+
+    <!-- 売上リセットボタン -->
+    <button class="btn-reset" onclick="resetAllData()">⚠️ 売上データをリセットする</button>
   </div>
 
   <!-- Firebase SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, getDocs, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyC0faMBCPDIRZ_GtRT4579855eIwhfQal8",
@@ -101,7 +104,6 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // ①「プレーン」を「きな粉」に変更
     const flavors = ["きな粉", "チョコ", "いちご", "抹茶", "キャラメル"];
     let orderState = { "きな粉": 0, "チョコ": 0, "いちご": 0, "抹茶": 0, "キャラメル": 0 };
 
@@ -182,7 +184,7 @@
 
       renderKitchen(orders);
       renderPickup(orders);
-      renderStats(orders); // ② 売上集計画面の更新
+      renderStats(orders);
     });
 
     function renderKitchen(orders) {
@@ -233,7 +235,6 @@
       });
     }
 
-    // ② 商品別累計と総売上を集計・描画する処理
     function renderStats(orders) {
       const flavorTotals = { "きな粉": 0, "チョコ": 0, "いちご": 0, "抹茶": 0, "キャラメル": 0 };
       let totalSales = 0;
@@ -273,6 +274,25 @@
         await updateDoc(docRef, { status: newStatus });
       } catch (e) {
         console.error("ステータス更新エラー:", e);
+      }
+    };
+
+    // 全データ削除・リセット関数
+    window.resetAllData = async function() {
+      const confirmReset = confirm("【警告】すべての注文履歴と売上データをリセットしますか？\n（この操作は取り消せません）");
+      if (!confirmReset) return;
+
+      try {
+        const querySnapshot = await getDocs(collection(db, "orders"));
+        const deletePromises = [];
+        querySnapshot.forEach((document) => {
+          deletePromises.push(deleteDoc(doc(db, "orders", document.id)));
+        });
+        await Promise.all(deletePromises);
+        alert("売上データと注文履歴をリセットしました。");
+      } catch (e) {
+        console.error("リセットエラー:", e);
+        alert("データの削除に失敗しました。");
       }
     };
 
