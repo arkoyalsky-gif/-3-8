@@ -7,8 +7,8 @@
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 15px; background: #f5f5f7; color: #333; }
-    .nav { display: flex; gap: 10px; margin-bottom: 20px; }
-    .nav button { flex: 1; padding: 12px 5px; font-size: 15px; font-weight: bold; border: none; background: #e0e0e0; border-radius: 8px; cursor: pointer; }
+    .nav { display: flex; gap: 8px; margin-bottom: 20px; }
+    .nav button { flex: 1; padding: 12px 2px; font-size: 14px; font-weight: bold; border: none; background: #e0e0e0; border-radius: 8px; cursor: pointer; }
     .nav button.active-tab { background: #007aff; color: white; }
     .page { display: none; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
     .active { display: block; }
@@ -24,6 +24,11 @@
     .btn-action { padding: 10px 18px; font-size: 15px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; margin-top: 10px; }
     .btn-start { background: #007aff; }
     .btn-finish { background: #34c759; }
+    
+    /* 売上集計テーブル用スタイル */
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #e5e5ea; padding: 12px; text-align: left; }
+    th { background: #f8f9fa; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -32,6 +37,7 @@
     <button id="tab-order" class="active-tab" onclick="showPage('order')">注文(レジ)</button>
     <button id="tab-kitchen" onclick="showPage('kitchen')">調理画面</button>
     <button id="tab-pickup" onclick="showPage('pickup')">受け渡し</button>
+    <button id="tab-stats" onclick="showPage('stats')">売上集計</button>
   </div>
 
   <!-- 1. 注文画面 -->
@@ -58,12 +64,31 @@
     <div id="pickup-orders"></div>
   </div>
 
+  <!-- 4. 売上集計画面 -->
+  <div id="page-stats" class="page">
+    <h2>売上集計（累計）</h2>
+    <div class="total-box">
+      <p style="margin: 5px 0;">全注文数: <strong><span id="stats-total-orders">0</span> 件</strong></p>
+      <p style="margin: 5px 0;">総販売個数: <strong><span id="stats-total-items">0</span> 個</strong></p>
+      <p style="margin: 5px 0; font-size: 20px;">売上総額: <strong><span id="stats-total-sales">0</span> 円</strong></p>
+    </div>
+    <h3>商品別販売数</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>味（メニュー）</th>
+          <th>累計個数</th>
+        </tr>
+      </thead>
+      <tbody id="stats-table-body"></tbody>
+    </table>
+  </div>
+
   <!-- Firebase SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-    // 修正済み Firebase 設定情報
     const firebaseConfig = {
       apiKey: "AIzaSyC0faMBCPDIRZ_GtRT4579855eIwhfQal8",
       authDomain: "pos-system-3a15a.firebaseapp.com",
@@ -76,8 +101,9 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    const flavors = ["プレーン", "チョコ", "いちご", "抹茶", "キャラメル"];
-    let orderState = { "プレーン": 0, "チョコ": 0, "いちご": 0, "抹茶": 0, "キャラメル": 0 };
+    // ①「プレーン」を「きな粉」に変更
+    const flavors = ["きな粉", "チョコ", "いちご", "抹茶", "キャラメル"];
+    let orderState = { "きな粉": 0, "チョコ": 0, "いちご": 0, "抹茶": 0, "キャラメル": 0 };
 
     window.showPage = function(pageName) {
       document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
@@ -127,7 +153,6 @@
       const { totalCount, totalAmount } = calculateTotal();
       if (totalCount === 0) return alert("商品を選択してください");
 
-      // 整理券番号（簡易発番: 100〜999のランダム）
       const ticketNumber = Math.floor(100 + Math.random() * 900);
 
       try {
@@ -135,7 +160,7 @@
           ticketNumber: ticketNumber,
           items: { ...orderState },
           totalAmount: totalAmount,
-          status: "waiting", // waiting -> cooking -> cooked -> completed
+          status: "waiting",
           createdAt: serverTimestamp()
         });
 
@@ -157,6 +182,7 @@
 
       renderKitchen(orders);
       renderPickup(orders);
+      renderStats(orders); // ② 売上集計画面の更新
     });
 
     function renderKitchen(orders) {
@@ -167,7 +193,7 @@
         const div = document.createElement('div');
         div.className = `card status-${order.status}`;
         
-        let itemsText = Object.entries(order.items)
+        let itemsText = Object.entries(order.items || {})
           .filter(([_, count]) => count > 0)
           .map(([name, count]) => `${name} × ${count}`)
           .join('<br>');
@@ -193,7 +219,7 @@
         const div = document.createElement('div');
         div.className = 'card status-cooked';
         
-        let itemsText = Object.entries(order.items)
+        let itemsText = Object.entries(order.items || {})
           .filter(([_, count]) => count > 0)
           .map(([name, count]) => `${name} × ${count}`)
           .join('<br>');
@@ -204,6 +230,40 @@
           <button class="btn-action btn-finish" onclick="updateStatus('${order.id}', 'completed')">受け渡し完了</button>
         `;
         container.appendChild(div);
+      });
+    }
+
+    // ② 商品別累計と総売上を集計・描画する処理
+    function renderStats(orders) {
+      const flavorTotals = { "きな粉": 0, "チョコ": 0, "いちご": 0, "抹茶": 0, "キャラメル": 0 };
+      let totalSales = 0;
+      let totalItems = 0;
+
+      orders.forEach(order => {
+        if (order.totalAmount) totalSales += order.totalAmount;
+        
+        if (order.items) {
+          Object.entries(order.items).forEach(([flavor, count]) => {
+            if (flavorTotals[flavor] !== undefined) {
+              flavorTotals[flavor] += count;
+            } else {
+              flavorTotals[flavor] = count;
+            }
+            totalItems += count;
+          });
+        }
+      });
+
+      document.getElementById('stats-total-orders').innerText = orders.length;
+      document.getElementById('stats-total-items').innerText = totalItems;
+      document.getElementById('stats-total-sales').innerText = totalSales;
+
+      const tbody = document.getElementById('stats-table-body');
+      tbody.innerHTML = '';
+      Object.entries(flavorTotals).forEach(([flavor, count]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><strong>${flavor}</strong></td><td>${count} 個</td>`;
+        tbody.appendChild(tr);
       });
     }
 
