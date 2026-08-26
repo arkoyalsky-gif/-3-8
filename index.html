@@ -29,9 +29,9 @@
 <body>
 
   <div class="nav">
-    <button id="tab-order" class="active-tab" onclick="showPage('page-order')">注文(レジ)</button>
-    <button id="tab-kitchen" onclick="showPage('page-kitchen')">調理画面</button>
-    <button id="tab-pickup" onclick="showPage('page-pickup')">受け渡し</button>
+    <button id="tab-order" class="active-tab" onclick="showPage('order')">注文(レジ)</button>
+    <button id="tab-kitchen" onclick="showPage('kitchen')">調理画面</button>
+    <button id="tab-pickup" onclick="showPage('pickup')">受け渡し</button>
   </div>
 
   <!-- 1. 注文画面 -->
@@ -63,11 +63,11 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-    // 取得したご自身の Firebase 設定情報に書き換えてください
+    // 修正済み Firebase 設定情報
     const firebaseConfig = {
-      apiKey: "AIzaSyC0faMBCPDIRZ_GtRT4579855eIwhfQal8",",
+      apiKey: "AIzaSyC0faMBCPDIRZ_GtRT4579855eIwhfQal8",
       authDomain: "pos-system-3a15a.firebaseapp.com",
-      projectId: "pos-system-3a15a
+      projectId: "pos-system-3a15a",
       storageBucket: "pos-system-3a15a.firebasestorage.app",
       messagingSenderId: "1085429055235",
       appId: "1:1085429055235:web:24253f987bc904ca213336"
@@ -79,11 +79,11 @@
     const flavors = ["プレーン", "チョコ", "いちご", "抹茶", "キャラメル"];
     let orderState = { "プレーン": 0, "チョコ": 0, "いちご": 0, "抹茶": 0, "キャラメル": 0 };
 
-    window.showPage = function(pageId) {
+    window.showPage = function(pageName) {
       document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active-tab'));
-      document.getElementById(`page-${pageId}`).classList.add('active');
-      document.getElementById(`tab-${pageId}`).classList.add('active-tab');
+      document.getElementById(`page-${pageName}`).classList.add('active');
+      document.getElementById(`tab-${pageName}`).classList.add('active-tab');
     };
 
     function renderMenu() {
@@ -130,18 +130,23 @@
       // 整理券番号（簡易発番: 100〜999のランダム）
       const ticketNumber = Math.floor(100 + Math.random() * 900);
 
-      await addDoc(collection(db, "orders"), {
-        ticketNumber: ticketNumber,
-        items: { ...orderState },
-        totalAmount: totalAmount,
-        status: "waiting", // waiting -> cooking -> cooked -> completed
-        createdAt: serverTimestamp()
-      });
+      try {
+        await addDoc(collection(db, "orders"), {
+          ticketNumber: ticketNumber,
+          items: { ...orderState },
+          totalAmount: totalAmount,
+          status: "waiting", // waiting -> cooking -> cooked -> completed
+          createdAt: serverTimestamp()
+        });
 
-      alert(`注文完了！ 整理券番号: #${ticketNumber}`);
-      
-      flavors.forEach(f => orderState[f] = 0);
-      renderMenu();
+        alert(`注文完了！ 整理券番号: #${ticketNumber}`);
+        
+        flavors.forEach(f => orderState[f] = 0);
+        renderMenu();
+      } catch (e) {
+        console.error("注文エラー:", e);
+        alert("注文の送信に失敗しました。設定を確認してください。");
+      }
     };
 
     // リアルタイムデータ同期
@@ -203,8 +208,12 @@
     }
 
     window.updateStatus = async function(docId, newStatus) {
-      const docRef = doc(db, "orders", docId);
-      await updateDoc(docRef, { status: newStatus });
+      try {
+        const docRef = doc(db, "orders", docId);
+        await updateDoc(docRef, { status: newStatus });
+      } catch (e) {
+        console.error("ステータス更新エラー:", e);
+      }
     };
 
     renderMenu();
